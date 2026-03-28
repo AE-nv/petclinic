@@ -21,6 +21,9 @@ A hands-on workshop for developers to learn **GitHub Copilot** using a real-worl
 - [Tips & Tricks](#tips--tricks)
 - [Reference: Project Structure](#reference-project-structure)
 
+**Day 2**
+- [Lab 9 - Spec-First Development with OpenAPI](#lab-9---spec-first-development-with-openapi)
+
 ---
 
 ## Workshop Overview
@@ -37,6 +40,12 @@ A hands-on workshop for developers to learn **GitHub Copilot** using a real-worl
 | 8 | MCP Playwright | E2E browser testing with the Playwright MCP server | 25 min |
 
 **Total estimated duration: ~3 hours** (adjust based on group size and depth)
+
+### Day 2
+
+| # | Lab | Topic | Duration |
+|---|-----|-------|----------|
+| 9 | Spec-First Development | Add a new API endpoint starting from `openapi.yaml` | 40 min |
 
 ---
 
@@ -723,44 +732,187 @@ Report any bugs or UI issues you discover.
 
 ---
 
-## Tips & Tricks
+## Lab 9 - Spec-First Development with OpenAPI
 
-### Copilot Keyboard Shortcuts
+**Goal**: Experience the full spec → generate → implement → test cycle. In this project the `openapi.yaml` file is the **single source of truth**: a Maven plugin generates all Java controller interfaces and DTOs from it at build time, and a contract test (`MyOpenAPIDidNotChangeTest`) enforces that the spec and the code are always in sync. In this lab you add a real missing endpoint by touching the YAML *first* — no Java until the spec is right.
 
-| Action | Windows/Linux | macOS |
-|--------|--------------|-------|
-| Accept suggestion | `Tab` | `Tab` |
-| Dismiss suggestion | `Esc` | `Esc` |
-| Next suggestion | `Alt+]` | `Option+]` |
-| Previous suggestion | `Alt+[` | `Option+[` |
-| Open Copilot Chat | `Ctrl+Shift+I` | `Cmd+Shift+I` |
-| Inline Chat | `Ctrl+I` | `Cmd+I` |
+> **Why this is different from Day 1**: Day 1 labs focus on using Copilot to write and test code. This lab flips the workflow: Copilot helps you design an API contract in a machine-readable spec, and then the toolchain generates the code skeleton for you. Copilot's role shifts from *code writer* to *spec designer* and *implementation guide*.
 
-### Useful Chat Commands
+### Background: How the Code-Generation Pipeline Works
 
-| Command | Purpose |
-|---------|---------|
-| `/explain` | Explain selected code |
-| `/fix` | Fix issues in selected code |
-| `/tests` | Generate tests for selected code |
-| `/doc` | Generate documentation |
-| `#workspace` | Ask about the entire codebase |
-| `@terminal` | Reference terminal output |
-| `#file:path` | Reference a specific file |
-| `#selection` | Reference selected code |
+```
+openapi.yaml
+    │
+    │  ./mvnw generate-sources
+    ▼
+openapi-generator-maven-plugin
+    │
+    ├─► src/main/.../rest/dto/     (OwnerDto, PetDto, VisitDto, ...)
+    └─► src/main/.../rest/api/     (OwnersApi, PetsApi, ... — Java interfaces)
+             │
+             └─► OwnerRestController implements OwnersApi
+```
 
-### Prompt Engineering Cheat Sheet
+The generated interfaces are what every `*RestController` must implement. Adding an endpoint means adding it to the YAML first; the compiler then forces you to implement it.
 
-| Technique | Example |
-|-----------|---------|
-| **Be specific** | "Add a `findByCity` method to `OwnerRepository` returning `List<Owner>`" |
-| **Provide context** | "Following the pattern in `VetRestController`, add a delete endpoint to..." |
-| **Set constraints** | "Use only Java 21 features. No external libraries." |
-| **Give examples** | "Like this: `assertThat(result).isEqualTo(expected)`" |
-| **Assign a role** | "You are a Spring Security expert. Review this configuration." |
-| **Iterate** | "Good, but also handle the case where the list is empty" |
+### The Missing Endpoint
+
+Currently there is no way to fetch **all visits for a given owner** in a single call. You must fetch the owner (which embeds pets + visits) and extract them yourself. A dedicated endpoint would be:
+
+```
+GET /api/owners/{ownerId}/visits
+```
+
+This is the endpoint you will add end-to-end in this lab.
 
 ---
+
+### Exercise 9.1 — Understand the Existing Spec and Contract Test
+
+**Step 1**: Open `openapi.yaml` and ask Copilot:
+
+```
+Explain how the existing /api/owners/{ownerId}/pets endpoint is defined in this file.
+What components are reused? Which response schema does it reference?
+```
+
+**Step 2**: Open `MyOpenAPIDidNotChangeTest.java` in the test sources and ask:
+
+```
+What does this test do? Why would it fail if I add something to openapi.yaml?
+```
+
+> **Key insight**: This test computes a checksum of the rendered spec. It is the project's contract guard — it will break as soon as you change the YAML, reminding you to consciously confirm the change.
+
+---
+
+### Exercise 9.2 — Design the Endpoint in the Spec
+
+Open `openapi.yaml`. Find the `/api/owners/{ownerId}/pets` path block. Ask Copilot:
+
+```
+Using the patterns in openapi.yaml, add a new GET endpoint:
+  path: /api/owners/{ownerId}/visits
+  - Returns an array of VisitDto (already defined in components/schemas)
+  - Returns 404 ProblemDetail if the owner is not found
+  - Tag it under the same "owner-rest-controller" tag
+  - Follow the exact same YAML style used by the other /api/owners/{ownerId}/... paths
+```
+
+Review what Copilot produces. Check:
+- Is `ownerId` declared as a required path parameter with the correct integer type?
+- Is the 200 response an array `$ref` to `VisitDto`?
+- Is the 404 response referencing `ProblemDetail`?
+- Is the `operationId` following the `camelCase` naming convention (e.g. `getOwnerVisits`)?
+
+Apply the changes to `openapi.yaml` when satisfied.
+
+---
+
+### Exercise 9.3 — Regenerate the Java Stubs
+
+Run the code-generation phase:
+
+```sh
+cd petclinic-backend
+./mvnw generate-sources
+```
+
+Check what was generated:
+
+```sh
+# Show the updated generated interface
+grep -A 10 'getOwnerVisits' target/generated-sources/openapi/src/main/java/org/springframework/samples/petclinic/rest/api/OwnersApi.java
+```
+
+Ask Copilot:
+
+```
+A new method getOwnerVisits has been generated in OwnersApi.java (in target/generated-sources).
+Show me the method signature and explain what it expects the implementing controller to return.
+```
+
+> **Compiler as guardian**: because `OwnerRestController implements OwnersApi`, the project **will not compile** until you add the new method. Try it:
+> ```sh
+> ./mvnw compile 2>&1 | grep 'error'
+> ```
+
+---
+
+### Exercise 9.4 — Implement the Business Logic
+
+Open `OwnerRestController.java`. Ask Copilot:
+
+```
+I need to implement getOwnerVisits(Integer ownerId) in OwnerRestController.
+Look at the existing getOwnersPet method for the pattern:
+- Fetch the owner by ID, return 404 if not found
+- Collect all visits across all the owner's pets
+- Return them mapped to VisitDto using VisitMapper
+- Return HTTP 200
+```
+
+Add the generated implementation. Then verify it compiles:
+
+```sh
+./mvnw compile
+```
+
+---
+
+### Exercise 9.5 — Write a MockMvc Test
+
+Open `OwnerTest.java` (the existing controller test for owners). Ask Copilot:
+
+```
+Following the patterns in OwnerTest.java, generate a @WebMvcTest for the new
+getOwnerVisits endpoint. Use the TestData fixtures already in the test class.
+Cover:
+  1. Happy path — owner exists, returns list of VisitDto with HTTP 200
+  2. Owner not found — returns HTTP 404 with ProblemDetail body
+```
+
+Add the tests to `OwnerTest.java` and run:
+
+```sh
+./mvnw test -Dtest=OwnerTest
+```
+
+---
+
+### Exercise 9.6 — Fix the Contract Test
+
+Now update the spec checksum so the contract test passes again. Ask Copilot:
+
+```
+MyOpenAPIDidNotChangeTest checks a hash of the OpenAPI spec.
+How do I update it to accept the new spec after my changes?
+```
+
+Run the full test suite to confirm everything is green:
+
+```sh
+./mvnw test
+```
+
+---
+
+### Exercise 9.7 — Bonus: Validate in Swagger UI
+
+1. Start the backend: `./mvnw spring-boot:run`
+2. Open http://localhost:8080/swagger-ui.html
+3. Find `GET /api/owners/{ownerId}/visits` — confirm it is listed
+4. Use the "Try it out" button with an existing `ownerId` (e.g. `1`) and verify the response
+
+---
+
+### Discussion Points
+
+- What are the advantages of generating code from a spec vs. writing the spec from code?
+- How does the contract test (`MyOpenAPIDidNotChangeTest`) change the team workflow?
+- When Copilot helped you write YAML, what context did it need to produce correct output?
+- At which step did Copilot add the most value? At which step did you need to guide it most?
+- How would you handle a breaking change (e.g., renaming a field in `VisitDto`) in a team that has external API consumers?
 
 ## Reference: Project Structure
 
