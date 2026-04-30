@@ -12,15 +12,17 @@ cleanup() {
   echo "Stopping backend and frontend..."
 
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
-    kill "$BACKEND_PID"
+    pkill -TERM -P "$BACKEND_PID" 2>/dev/null || true
+    kill -TERM "$BACKEND_PID" 2>/dev/null || true
   fi
 
   if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
-    kill "$FRONTEND_PID"
+    pkill -TERM -P "$FRONTEND_PID" 2>/dev/null || true
+    kill -TERM "$FRONTEND_PID" 2>/dev/null || true
   fi
 }
 
-trap cleanup EXIT SIGINT SIGTERM
+trap cleanup EXIT SIGINT SIGTERM SIGHUP
 
 if [[ ! -d "$BACKEND_DIR" ]]; then
   echo "Backend directory not found: $BACKEND_DIR" >&2

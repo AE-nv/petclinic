@@ -1,0 +1,24 @@
+{
+  "name": "petclinic",
+  "version": "1.0.0",
+  "description": "A hands-on workshop for developers to learn **GitHub Copilot** using a real-world full-stack application. Covers prompt engineering, code generation, refactoring, test generation, custom instructions, and MCP Playwright for E2E testing.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AE-nv/petclinic.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/AE-nv/petclinic/issues"
+  },
+  "homepage": "https://github.com/AE-nv/petclinic#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
